@@ -1,0 +1,60 @@
+// .vscode/settings.json
+{
+    // --- File Explorer and Search Exclusions ---
+    "files.exclude": {
+        "**/.git": true,
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        "**/.ruff_cache": true,
+        "**/.mypy_cache": true,
+        "**/.coverage": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        // Keep build/dist/venv visible if you sometimes work outside container
+        // Or add them here if you never want to see them
+    },
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/bower_components": true,
+        "**/*.code-search": true,
+        "**/build": true,
+        "**/dist": true,
+        "**/.venv": true,
+        "**/venv": true,
+        "**/env": true,
+        "**/.egg-info": true
+    },
+    // --- Python Testing Configuration ---
+    // These settings help the VS Code UI discover and run tests
+    "python.testing.pytestArgs": [
+        "tests" // Look for tests in the 'tests' directory
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    // --- General Editor Settings ---
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.eol": "\n", // Ensure Linux line endings
+    // --- Python Specific (might be overridden by devcontainer.json) ---
+    "[python]": {
+        "editor.tabSize": 4,
+        "editor.rulers": [
+            88,
+            120
+        ] // Indicate preferred line lengths
+    },
+    "cSpell.words": [
+        "charliermarsh",
+        "datawrangler",
+        "docstrings",
+        "donjayamanne",
+        "eamodio",
+        "githistory",
+        "mhutchie",
+        "njpwerner",
+        "notepadplusplus",
+        "pytest",
+        "PYTHONPATH",
+        "toolsai"
+    ]
+}

@@ -1,0 +1,44 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        // Debug the currently open Python file
+        "name": "Python: Current File",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${file}", // Special variable for the active file
+        "console": "integratedTerminal", // Show output in VS Code's terminal
+        "justMyCode": true // Set to false to step into library code
+      },
+      {
+        // Debug using pytest
+        "name": "Python: Pytest",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "pytest", // Run pytest as a module
+        "args": [
+          "${workspaceFolder}/tests" // Run tests found in the tests folder
+        ],
+        "console": "integratedTerminal",
+        "justMyCode": true
+      },
+      {
+        // Example for debugging a FastAPI application (using uvicorn)
+        // Requires 'uvicorn' and 'fastapi' to be installed via Poetry
+        "name": "Python: FastAPI",
+        "type": "debugpy",
+        "request": "launch",
+        "module": "uvicorn", // Run uvicorn as a module
+        "args": [
+          "your_main_module:app", // Replace with path to your FastAPI app instance (e.g., src.main:app)
+          "--host", "0.0.0.0",    // Listen on all interfaces inside container
+          "--port", "8000",       // Match exposed port
+          "--reload"              // Enable auto-reload (good for dev, remove for production debugging)
+        ],
+        "jinja": false, // Set true if using Jinja2 templates with FastAPI
+        "console": "integratedTerminal",
+        "justMyCode": true
+      }
+      // Add configurations for other frameworks (Flask, Django) as needed.
+    ]
+  }

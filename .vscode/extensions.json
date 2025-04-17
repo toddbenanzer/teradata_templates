@@ -1,0 +1,59 @@
+{
+	"recommendations": [
+	  // --- Core Python Development ---
+	  "ms-python.python",             // Official Python extension
+	  "ms-python.vscode-pylance",     // High-performance language server
+
+	  // --- Linting and Formatting ---
+	  // Modern and Fastest (Recommended):
+	  "charliermarsh.ruff",          // Linter and formatter, replaces Pylint/Flake8 + Black/Autopep8
+	  // Alternatives (Choose one or more if preferred):
+	  // "ms-python.pylint",           // Widely-used, configurable linter
+	  // "ms-python.flake8",           // Linter focused on PEP 8
+	  // "ms-python.black-formatter",  // Opinionated code formatter
+	  // "esbenp.prettier-vscode",      // General formatter (with Python plugin)
+
+	  // --- Docker and WSL Integration ---
+	  "ms-azuretools.vscode-docker",  // Docker management in VS Code
+	  "ms-vscode-remote.remote-wsl",    //  Essential for WSL integration
+	  "ms-vscode-remote.remote-containers", // Develop inside Docker containers
+	  "PeterJipsen.docker-compose",   // Support for Docker Compose files
+
+	  // --- Testing ---
+	  "ms-python.test-adapter-converter", // Adapt Python test frameworks
+	  "hbenl.vscode-test-explorer",     // Test Explorer UI
+	  // "littlefoxteam.vscode-python-test-adapter", // Alternative test adapter
+
+	  // --- Jupyter Notebooks (If applicable) ---
+	  "ms-toolsai.jupyter",           // Jupyter support
+	  "ms-toolsai.jupyter-keymap",    // Jupyter keybindings
+	  "ms-toolsai.jupyter-renderers", // Render Jupyter output
+
+	  // --- Python Productivity ---
+	  "njpwerner.autodocstring",      // Generate docstrings
+	  "VisualStudioExptTeam.vscodeintellicode", // AI-assisted IntelliSense
+	  "oderwat.indent-rainbow",       // Visualize indentation
+	  "streetsidesoftware.code-spell-checker", // Code spell checker
+	  "magicstack.magicpython",       // Enhanced syntax highlighting
+
+	  // --- General Productivity ---
+	  "vscode.yaml",                  // YAML support
+	  "christian-kohler.path-intellisense", // Path autocompletion
+	  "usernamehw.errorlens",         // Inline error/warning display
+	  "PKief.material-icon-theme",     // File/folder icons
+	  "ZixuanChen.sort-lines",        // Sort lines of text
+	   "eamodio.gitlens",             // Git integration
+
+	  // --- Templates (If applicable) ---
+	  "wholroyd.jinja",               // Jinja template support
+
+	  // --- Collaboration ---
+	  "github.copilot",               // AI pair programming
+	  "github.copilot-chat",          // Chat-based AI assistance
+	  "github.codespaces"             // Codespaces integration
+
+	  // --- Optional ---
+	  // "redhat.vscode-yaml",       // Alternative YAML support
+	  // "editorconfig.editorconfig"  // Consistent code style
+	]
+  }

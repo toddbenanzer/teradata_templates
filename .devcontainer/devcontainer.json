@@ -1,0 +1,94 @@
+{
+    // Configuration name visible in VS Code UI
+    "name": "Python 3.13 (Poetry + Ubuntu/Debian)",
+    // Define how to build the development container
+    "build": {
+        // Path to the Dockerfile, relative to this devcontainer.json file
+        "dockerfile": "Dockerfile",
+        // Build context directory (project root), relative to this file
+        "context": ".."
+        // Optional: Add build arguments if your Dockerfile uses ARG
+        // "args": { "PYTHON_VERSION": "3.13" }
+    },
+    // Forward ports from the container to the host machine
+    "forwardPorts": [
+        8000 // Forward the port exposed in the Dockerfile (containerPort:hostPort)
+    ],
+    // Optional: Tell VS Code which port your app is likely running on for UI features
+    // "appPort": 8000,
+    // --- VS Code Integration ---
+    // The directory inside the container where the project will be mounted
+    // "workspaceFolder": "/app",
+    // How local project files are mounted into the container (bind mount)
+    // "workspaceMount": "source=${localWorkspaceFolder},target=/app,type=bind,consistency=cached",
+    // VS Code UI and behavior customizations when connected to the container
+    "customizations": {
+        "vscode": {
+            // List of VS Code extension IDs to automatically install inside the container
+            "extensions": [
+                "ms-python.python", // Core Python language support
+                "ms-python.vscode-pylance", // IntelliSense, type checking, code navigation
+                "ms-python.debugpy", // Python debugger engine
+                "charliermarsh.ruff", // Fast linter and formatter
+                "streetsidesoftware.code-spell-checker", // Spell checking
+                "njpwerner.autodocstring", // Generate Python docstrings easily
+                "ms-azuretools.vscode-docker", // Docker extension (useful even if not using Docker-in-Docker)
+                "github.vscode-github-actions", // If using GitHub Actions
+                "mhutchie.git-graph", // Visualize Git history
+                "eamodio.gitlens", // Enhanced Git capabilities
+                "donjayamanne.githistory",
+                "ms-toolsai.datawrangler",
+                "ms-kubernetes-tools.vscode-kubernetes-tools",
+                "ms-vscode.notepadplusplus-keybindings" // Notepad++ keybindings for convenience
+            ],
+            // Specific VS Code settings to apply only when working inside this container
+            "settings": {
+                // General editor settings
+                "editor.tabSize": 4,
+                "editor.rulers": [
+                    88,
+                    120
+                ],
+                "files.eol": "\n", // Use Linux line endings
+                "files.trimTrailingWhitespace": true,
+                "files.insertFinalNewline": true,
+                // Python specific settings
+                "python.defaultInterpreterPath": "/usr/local/bin/python", // Path to container's Python
+                "python.analysis.typeCheckingMode": "basic", // Or "strict"
+                "python.testing.pytestEnabled": true, // Enable pytest discovery
+                "python.testing.unittestEnabled": false, // Disable unittest discovery
+                // Ruff Linter/Formatter settings (ensure Ruff extension uses these)
+                "[python]": {
+                    "editor.defaultFormatter": "charliermarsh.ruff",
+                    "editor.formatOnSave": true,
+                    "editor.codeActionsOnSave": {
+                        "source.fixAll": "explicit", // Apply all safe fixes on save
+                        "source.organizeImports": "explicit" // Organize imports on save
+                    }
+                },
+                "ruff.importStrategy": "fromEnvironment", // Use ruff found in the environment (installed via Poetry)
+                // Terminal settings
+                "terminal.integrated.defaultProfile.linux": "bash", // Use bash shell
+                "terminal.integrated.profiles.linux": {
+                    "bash": {
+                        "path": "/bin/bash"
+                    }
+                }
+            }
+        }
+    },
+    // --- Lifecycle Hooks ---
+    // Commands to run after the container is created but before VS Code attaches
+    // Example: Initialize git submodules, install global tools if needed
+    "postCreateCommand": "pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir pytest-cov pre-commit && if [ -f .pre-commit-config.yaml ]; then pre-commit install; fi",
+    // Command to run when VS Code attaches to the container (after postCreateCommand)
+    // Example: Ensure Poetry dependencies are fully synced (useful if lock file changed)
+    // "postAttachCommand": {
+    //   "server": "poetry install --sync --no-root"
+    // },
+    // Run VS Code server and terminal processes as this non-root user
+    "remoteUser": "root",
+    "remoteEnv": {
+        "PYTHONPATH": "${containerWorkspaceFolder}"
+    }
+}
