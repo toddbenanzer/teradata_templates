@@ -5,9 +5,11 @@ This module provides utilities for generating Teradata SQL query templates,
 including date filters and volatile table creation.
 """
 import re
+import sqlparse
+from sql_formatter.core import format_sql # Reverted to this import
 
 
-def create_date_filtered_query(base_query, date_column, start_date=None, end_date=None, keyword_case='upper'):
+def create_date_filtered_query(base_query, date_column, start_date=None, end_date=None, keyword_case='upper', format_sql_output=False):
     """
     Add date range filters to a Teradata SQL query.
 
@@ -17,6 +19,7 @@ def create_date_filtered_query(base_query, date_column, start_date=None, end_dat
         start_date (str, optional): Start date in 'YYYY-MM-DD' format
         end_date (str, optional): End date in 'YYYY-MM-DD' format
         keyword_case (str, optional): Case for SQL keywords ('upper' or 'lower'). Defaults to 'upper'.
+        format_sql_output (bool, optional): If True, format the output SQL. Defaults to False.
 
     Returns:
         str: SQL query with date filters applied
@@ -43,32 +46,172 @@ def create_date_filtered_query(base_query, date_column, start_date=None, end_dat
         date_filters.append(f"{date_column} <= '{end_date}'")
 
     # Combine date filters
-    date_filter_str = f" {kw_and} ".join(date_filters)
+    date_filter_str = f" {kw_and} ".join(date_filters) # This will be a complete condition string
 
-    # Use regex to handle different SQL formatting for WHERE and GROUP BY
-    # Regex searches remain case-insensitive to find the clauses regardless of original casing
-    where_match = re.search(r"\bWHERE\b", filtered_query, re.IGNORECASE)
-    group_by_match = re.search(r"\bGROUP BY\b", filtered_query, re.IGNORECASE)
+    parsed = sqlparse.parse(filtered_query)
+    if not parsed:
+        # Should not happen with valid SQL, but as a fallback:
+        return filtered_query + f" {kw_where} {date_filter_str}"
 
-    if where_match:
-        # Add to existing WHERE clause
-        # Insert after the WHERE keyword
-        insert_pos = where_match.end()
-        # The part before the original WHERE's content, then new filters, then original content
-        filtered_query = f"{filtered_query[:insert_pos]} {date_filter_str} {kw_and}{filtered_query[insert_pos:]}"
-    elif group_by_match:
-        # Insert WHERE before GROUP BY
-        insert_pos = group_by_match.start()
-        filtered_query = f"{filtered_query[:insert_pos]}{kw_where} {date_filter_str} {filtered_query[insert_pos:]}"
+    stmt = parsed[0]
+
+    # Reconstruct the query token by token
+    new_tokens = []
+    where_found = False
+    group_by_found = False
+    # Used to find the correct insertion point for a new WHERE clause if no WHERE exists but GROUP BY does
+    # or if neither exists, it will be the end of the statement (before a potential semicolon).
+    insertion_point_idx = -1
+    potential_semicolon_token = None
+
+    # Scan for top-level WHERE and GROUP BY
+    # We are interested in the *last* SELECT statement's WHERE/GROUP BY in case of CTEs.
+    # sqlparse breaks statements by ';'. We operate on the first (assumed to be only, or main) statement.
+
+    where_clause_idx = -1
+    group_by_clause_idx = -1 # Index of the 'GROUP BY' keyword token itself
+
+    # Find the main SELECT statement block to avoid modifying CTEs' clauses incorrectly
+    # This is a simplified approach: find the last SELECT and work from there.
+    # A truly robust solution for complex CTEs/subqueries might require deeper tree traversal.
+
+    # Find tokens belonging to the last SELECT query block
+    # For simplicity, we'll iterate tokens and find the *last* top-level WHERE or GROUP BY
+    # This might not be perfect for deeply nested structures but should work for common CTE patterns.
+
+    last_where_token_idx = -1
+    last_group_by_token_idx = -1
+
+    # stmt.get_type() can be 'SELECT', 'INSERT', 'CREATE', 'WITH' (for CTEs)
+    # If it's a 'WITH' statement, the actual SELECT is usually the last major token group.
+
+    tokens_to_search = stmt.tokens
+
+    # Attempt to find the main SELECT statement part if it's a CTE
+    if stmt.get_type() == 'WITH':
+        # Find the token that starts the main query (usually a SELECT keyword after the CTE part)
+        # This is heuristic: assumes CTE definition `WITH ... AS (...) SELECT ...`
+        cte_definitions_ended = False
+        main_query_start_idx = -1
+        for i, token in enumerate(stmt.tokens):
+            if isinstance(token, sqlparse.sql.Parenthesis): # End of CTE definition AS (...)
+                # Check if the next non-whitespace token is SELECT
+                for next_token_idx in range(i + 1, len(stmt.tokens)):
+                    next_token = stmt.tokens[next_token_idx]
+                    if next_token.is_whitespace:
+                        continue
+                    if next_token.is_keyword and next_token.normalized == 'SELECT':
+                        main_query_start_idx = next_token_idx
+                        break
+                    else: # Not a SELECT immediately after CTE, structure is different
+                        main_query_start_idx = -1 # Reset
+                        break
+                if main_query_start_idx != -1:
+                    break
+
+        if main_query_start_idx != -1:
+            tokens_to_search = stmt.tokens[main_query_start_idx:]
+        # else: search all tokens if main SELECT not clearly isolated (fallback)
+
+    # Find the relevant WHERE or GROUP BY in the selected tokens_to_search
+    # We are looking for the first WHERE or GROUP BY in this part of the query.
+    current_where_idx_in_search_tokens = -1
+    current_group_by_idx_in_search_tokens = -1
+
+    for i, token in enumerate(tokens_to_search):
+        if isinstance(token, sqlparse.sql.Where):
+            current_where_idx_in_search_tokens = i
+            break # Found the main WHERE for this segment
+        # Fallback for simple WHERE keyword not wrapped in Where object
+        elif token.is_keyword and token.normalized == 'WHERE' and current_where_idx_in_search_tokens == -1 :
+             current_where_idx_in_search_tokens = i # Mark the keyword itself
+             break
+
+    # If no WHERE, check for GROUP BY in the same tokens_to_search
+    if current_where_idx_in_search_tokens == -1:
+        for i, token in enumerate(tokens_to_search):
+            if token.is_keyword and token.normalized == 'GROUP BY':
+                current_group_by_idx_in_search_tokens = i
+                break
+
+    # Adjust indices to be relative to the original stmt.tokens if we searched a sub-segment
+    if stmt.get_type() == 'WITH' and main_query_start_idx != -1:
+        if current_where_idx_in_search_tokens != -1:
+            where_clause_idx = main_query_start_idx + current_where_idx_in_search_tokens
+        if current_group_by_idx_in_search_tokens != -1:
+            group_by_clause_idx = main_query_start_idx + current_group_by_idx_in_search_tokens
+    else: # Searched all tokens
+        where_clause_idx = current_where_idx_in_search_tokens
+        group_by_clause_idx = current_group_by_idx_in_search_tokens
+
+
+    processed_tokens = []
+    if where_clause_idx != -1:
+        # An existing WHERE clause was found (either as Where object or keyword)
+        # Iterate through all original tokens and rebuild, modifying the found WHERE clause
+        for i, token in enumerate(stmt.tokens):
+            if i == where_clause_idx: # This is the Where object or WHERE keyword
+                if isinstance(token, sqlparse.sql.Where):
+                    # It's a Where object, modify its internal tokens
+                    where_obj = token
+                    new_where_tokens = []
+                    # First token of Where object is the 'WHERE' keyword
+                    new_where_tokens.append(where_obj.tokens[0])
+                    new_where_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+                    new_where_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Text, date_filter_str))
+                    new_where_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+                    new_where_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Keyword, kw_and))
+                    # Append rest of original WHERE clause tokens (original conditions)
+                    # Need to ensure a space if the original conditions don't start with one.
+                    if len(where_obj.tokens) > 1 and not where_obj.tokens[1].is_whitespace:
+                         new_where_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+                    new_where_tokens.extend(where_obj.tokens[1:]) # Add original conditions
+                    processed_tokens.append(sqlparse.sql.Where(new_where_tokens))
+                else: # It's just a WHERE keyword token
+                    processed_tokens.append(token) # The WHERE keyword
+                    processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+                    processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Text, date_filter_str))
+                    processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+                    # Assume original conditions followed, so add AND.
+                    # This path is less robust than modifying a Where object.
+                    # The next tokens in stmt.tokens should be the original conditions.
+                    processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Keyword, kw_and))
+                    # A space will be added if the next token isn't already whitespace by the loop.
+            else:
+                processed_tokens.append(token)
+    elif group_by_clause_idx != -1:
+        # No WHERE, but GROUP BY exists. Insert new WHERE clause before GROUP BY.
+        for i, token in enumerate(stmt.tokens):
+            if i == group_by_clause_idx: # This is the 'GROUP BY' keyword
+                processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Keyword, kw_where))
+                processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+                processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Text, date_filter_str))
+                processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+            processed_tokens.append(token)
     else:
-        # Add WHERE clause at the end
-        # Check for existing semicolons
-        if filtered_query.endswith(";"):
-            filtered_query = filtered_query[:-1] + f" {kw_where} {date_filter_str};"
-        else:
-            filtered_query += f" {kw_where} {date_filter_str}"
+        # No WHERE and no GROUP BY. Add new WHERE at the end (before semicolon if any).
+        temp_tokens = list(stmt.tokens)
+        semicolon_token = None
+        if temp_tokens and temp_tokens[-1].ttype is sqlparse.tokens.Punctuation and temp_tokens[-1].value == ';':
+            semicolon_token = temp_tokens.pop()
 
-    return filtered_query
+        processed_tokens.extend(temp_tokens)
+        if processed_tokens and not processed_tokens[-1].is_whitespace:
+            processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+        processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Keyword, kw_where))
+        processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+        processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Text, date_filter_str))
+        if semicolon_token:
+            processed_tokens.append(semicolon_token)
+
+    final_sql = str(sqlparse.sql.Statement(processed_tokens)).strip()
+
+    if format_sql_output:
+        # Reverting to call without uppercase, as it's causing TypeError.
+        # This means sql-formatter will use its default keyword casing.
+        return format_sql(final_sql)
+    else:
+        return final_sql
 
 
 def create_volatile_table_sql(
@@ -81,7 +224,8 @@ def create_volatile_table_sql(
     on_commit_preserve=True,
     is_querygrid=False,
     target_database=None,
-    keyword_case='upper'
+    keyword_case='upper',
+    format_sql_output=False
 ):
     """
     Generate SQL to create a volatile table from a query with proper best practices.
@@ -99,6 +243,7 @@ def create_volatile_table_sql(
         is_querygrid (bool): Whether this involves a QueryGrid query.
         target_database (str, optional): Target database for QueryGrid queries.
         keyword_case (str, optional): Case for SQL keywords ('upper' or 'lower'). Defaults to 'upper'.
+        format_sql_output (bool, optional): If True, format the output SQL. Defaults to False.
 
     Returns:
         str: Complete SQL for creating the volatile table
@@ -194,12 +339,20 @@ def create_volatile_table_sql(
 -- Collect statistics for query optimization
 {stats_statement}""")
 
-    # Join all parts and return
-    return "\n".join(sql_parts)
+    final_sql = "\n".join(sql_parts)
+
+    if format_sql_output:
+        # Reverting to call without uppercase.
+        # Note: sql-formatter might struggle with multi-statement SQL like the BEGIN/END block
+        # for DROP TABLE. We'll format the whole thing, but it might not be perfect for that part.
+        # The primary benefit will be for the CREATE TABLE statement itself.
+        return format_sql(final_sql)
+    else:
+        return final_sql
 
 
 def create_date_partitioned_query(
-    base_query, date_column, partition_by="month", start_date=None, end_date=None, keyword_case='upper'
+    base_query, date_column, partition_by="month", start_date=None, end_date=None, keyword_case='upper', format_sql_output=False
 ):
     """
     Create a date-partitioned query for more efficient processing.
@@ -211,6 +364,7 @@ def create_date_partitioned_query(
         start_date (str, optional): Start date in 'YYYY-MM-DD' format
         end_date (str, optional): End date in 'YYYY-MM-DD' format
         keyword_case (str, optional): Case for SQL keywords ('upper' or 'lower'). Defaults to 'upper'.
+        format_sql_output (bool, optional): If True, format the output SQL. Defaults to False.
 
     Returns:
         str: SQL query with date partitioning
@@ -240,40 +394,99 @@ def create_date_partitioned_query(
     else:
         raise ValueError(f"Invalid partition_by value: '{partition_by}'. Must be 'day', 'month', or 'year'.")
 
-    # Use regex to handle different SQL formatting for GROUP BY
-    # Regex search remains case-insensitive
-    group_by_match = re.search(r"\bGROUP BY\b", filtered_query, re.IGNORECASE)
+    parsed_filtered_query = sqlparse.parse(filtered_query)
+    if not parsed_filtered_query:
+        # Fallback, should not happen with valid SQL
+        return f"{filtered_query} {kw_group_by} {partition_func}"
 
-    if group_by_match:
-        # Check if the partition function (case-insensitive for the check) is already in the GROUP BY
-        # This is a simple check and might need to be more robust for complex aliases
-        # For checking, we can normalize the case of the relevant part of the query and the function itself
-        existing_group_by_clauses = filtered_query[group_by_match.end():]
-        if partition_func.lower() not in existing_group_by_clauses.lower(): # Case-insensitive check
-            # Add to existing GROUP BY
-            start_of_group_by_keyword = group_by_match.start() # e.g. index of 'G' in "GROUP BY"
-            original_group_by_keyword = group_by_match.group(0) # e.g. "GROUP BY" or "group by"
+    stmt = parsed_filtered_query[0]
 
-            query_before_keyword = filtered_query[:start_of_group_by_keyword]
-            query_after_keyword_content = filtered_query[group_by_match.end():].lstrip()
+    processed_tokens = []
+    group_by_found = False
 
-            # Use the keyword_case for the "GROUP BY" being inserted/modified
-            partitioned_query = f"{query_before_keyword}{kw_group_by} {partition_func}, {query_after_keyword_content}"
-        else:
-            # Already partitioned by this column/expression
-            partitioned_query = filtered_query
+    # Check if GROUP BY clause exists and if partition_func is already in it
+    original_tokens_str_lower = stmt.value.lower() # For checking existence of partition_func
+
+    # Iterate once to find if GROUP BY exists and if function is already part of it
+    # This is a simplified check; truly robust checking would involve parsing expressions within GROUP BY
+    # For now, we check if the string representation of partition_func (lower case) is in the query part after GROUP BY
+    idx_group_by = -1
+    for i, token in enumerate(stmt.tokens):
+        if token.is_keyword and token.normalized == 'GROUP BY':
+            idx_group_by = i
+            group_by_found = True
+            break # Found the primary GROUP BY
+
+    if group_by_found:
+        # Check if partition_func (case insensitive) is already in the existing GROUP BY clause
+        # Reconstruct the string of clauses after "GROUP BY"
+        group_by_content_tokens = stmt.tokens[idx_group_by + 1:]
+        group_by_content_str = "".join(str(t) for t in group_by_content_tokens).lower()
+        if partition_func.lower() in group_by_content_str:
+            return filtered_query # Already partitioned, return original filtered query
+
+        # If not found, insert it
+        inserted_partition_func = False
+        for i, token in enumerate(stmt.tokens):
+            if i == idx_group_by: # At the GROUP BY keyword
+                processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Keyword, kw_group_by)) # Use cased keyword
+                processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+                processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Text, partition_func))
+                processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Punctuation, ','))
+                processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+                inserted_partition_func = True
+            elif inserted_partition_func and token.is_whitespace:
+                # Avoid adding double spaces if original GROUP BY was followed by a space
+                # This token (original whitespace after GROUP BY) is skipped as we added our own.
+                continue
+            elif inserted_partition_func and i == idx_group_by + 1:
+                # This is the token immediately after original "GROUP BY".
+                # We've already added partition_func, comma, space. Now add this token.
+                processed_tokens.append(token)
+                # Reset flag so we don't skip subsequent whitespaces unnecessarily
+                # This logic path (i == idx_group_by + 1) is primarily for the first item of the original group by
+                # inserted_partition_func = False # No, keep true to indicate we are past the insertion point
+            elif i > idx_group_by and not inserted_partition_func:
+                 # This case should not be hit if idx_group_by is correct.
+                 # This means we are past the original GROUP BY keyword, but haven't inserted.
+                 # This implies we are iterating over original GROUP BY content tokens.
+                 processed_tokens.append(token)
+            elif i < idx_group_by:
+                processed_tokens.append(token) # Tokens before GROUP BY
+            elif i > idx_group_by and inserted_partition_func: # Tokens after original GROUP BY items start
+                processed_tokens.append(token)
+
+
+        if not inserted_partition_func: # Should not happen if group_by_found is true
+             processed_tokens.extend(stmt.tokens) # Fallback
+
     else:
-        # Add new GROUP BY clause
-        # Check for existing semicolons
-        if filtered_query.endswith(";"):
-            partitioned_query = filtered_query[:-1] + f" {kw_group_by} {partition_func};"
-        else:
-            partitioned_query = f"{filtered_query} {kw_group_by} {partition_func}"
+        # No GROUP BY clause, add one at the end (before semicolon if any)
+        has_semicolon = False
+        temp_tokens = list(stmt.tokens)
+        if temp_tokens and temp_tokens[-1].ttype is sqlparse.tokens.Punctuation and temp_tokens[-1].value == ';':
+            has_semicolon = True
+            semicolon_token = temp_tokens.pop()
 
-    return partitioned_query
+        processed_tokens.extend(temp_tokens)
+        if processed_tokens and not processed_tokens[-1].is_whitespace:
+            processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+        processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Keyword, kw_group_by))
+        processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Whitespace, ' '))
+        processed_tokens.append(sqlparse.sql.Token(sqlparse.tokens.Text, partition_func))
+        if has_semicolon:
+            processed_tokens.append(semicolon_token)
+
+    final_sql = str(sqlparse.sql.Statement(processed_tokens)).strip()
+
+    if format_sql_output:
+        # Reverting to call without uppercase.
+        return format_sql(final_sql)
+    else:
+        return final_sql
 
 
-def create_in_clause(column_name, values_list, chunk_size=1000):
+def create_in_clause(column_name, values_list, chunk_size=1000, format_sql_output=False):
     """
     Create a SQL IN clause, handling chunking for large lists.
 
@@ -289,9 +502,18 @@ def create_in_clause(column_name, values_list, chunk_size=1000):
         str: A SQL string for the IN clause condition.
              Returns '1=0' if values_list is empty, to ensure a valid
              SQL condition that results in no rows.
+        format_sql_output (bool, optional): If True, format the output SQL. Defaults to False.
     """
+    # Keywords used by this function are IN, OR.
+    # These are not currently managed by keyword_case, but could be if needed.
+    # For now, they will be uppercase as written.
+
+    kw_in = "IN" # Assuming IN and OR keywords remain uppercase for this function for now
+    kw_or = "OR"
+
     if not values_list:
-        return "1=0"  # Condition that is always false
+        # '1=0' is simple enough not to need formatting.
+        return "1=0"
 
     # Determine if quoting is needed (based on the first item)
     # This assumes homogenous list types; for mixed types, users should pre-format.
@@ -305,11 +527,19 @@ def create_in_clause(column_name, values_list, chunk_size=1000):
         else:
             formatted_values.append(str(v))
 
+    raw_sql = ""
     if len(formatted_values) <= chunk_size:
-        return f"{column_name} IN ({', '.join(formatted_values)})"
+        raw_sql = f"{column_name} {kw_in} ({', '.join(formatted_values)})"
     else:
         chunks = []
         for i in range(0, len(formatted_values), chunk_size):
             chunk = formatted_values[i:i + chunk_size]
-            chunks.append(f"{column_name} IN ({', '.join(chunk)})")
-        return f"({ ' OR '.join(chunks) })"
+            chunks.append(f"{column_name} {kw_in} ({', '.join(chunk)})")
+        raw_sql = f"({ f' {kw_or} '.join(chunks) })"
+
+    if format_sql_output:
+        # Reverting to call without uppercase for create_in_clause as well.
+        # It will use sql-formatter's default casing for IN/OR.
+        return format_sql(raw_sql)
+    else:
+        return raw_sql
