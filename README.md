@@ -6,10 +6,12 @@ A lightweight Python module for generating Teradata SQL templates with a focus o
 
 This module provides utilities for:
 
-1. Adding date range filters to existing SQL queries
-2. Creating volatile tables with proper indexing and statistics
-3. Supporting QueryGrid for cross-database queries
-4. Adding date partitioning to queries for improved performance
+1. Adding date range filters to existing SQL queries.
+2. Creating volatile tables with proper indexing and statistics.
+3. Supporting QueryGrid for cross-database queries.
+4. Adding date partitioning to queries for improved performance.
+5. Generating dynamic `IN` clauses with chunking for large value lists.
+6. Basic SQL keyword case formatting (uppercase/lowercase) for generated statements.
 
 ## Installation
 
@@ -17,7 +19,7 @@ Simply copy the `teradata_sql_utils.py` file to your project directory.
 
 ## Usage
 
-### Date Filtering
+### Date Filtering (with Keyword Formatting)
 
 ```python
 import teradata_sql_utils as tdu
@@ -35,10 +37,17 @@ filtered_query = tdu.create_date_filtered_query(
     base_query=base_query,
     date_column="order_date",
     start_date="2023-01-01",
-    end_date="2023-03-31"
+    end_date="2023-03-31",
+    keyword_case='lower' # Or 'upper' (default)
 )
 
 print(filtered_query)
+# Example Output (keyword_case='lower'):
+# SELECT
+#     customer_id,
+#     SUM(order_amount) AS total_sales
+# FROM orders
+# where order_date >= '2023-01-01' and order_date <= '2023-03-31'
 ```
 
 ### Volatile Table Creation
@@ -73,6 +82,26 @@ querygrid_sql = tdu.create_volatile_table_sql(
 print(querygrid_sql)
 ```
 
+### Dynamic IN Clause
+
+```python
+import teradata_sql_utils as tdu
+
+ids = [1, 2, 3, 4, 5, 6, 7]
+in_clause_sql = tdu.create_in_clause(column_name="product_id", values_list=ids, chunk_size=3)
+print(in_clause_sql)
+# Output: (product_id IN (1, 2, 3) OR product_id IN (4, 5, 6) OR product_id IN (7))
+
+names = ["Alice", "Bob", "O'Malley"]
+in_clause_names = tdu.create_in_clause(column_name="customer_name", values_list=names)
+print(in_clause_names)
+# Output: customer_name IN ('Alice', 'Bob', 'O''Malley')
+
+empty_list_clause = tdu.create_in_clause("item_id", [])
+print(empty_list_clause)
+# Output: 1=0
+```
+
 ## Examples
 
 Basic usage examples are provided below. For more detailed examples, refer to the unit tests in `test_teradata_sql_utils.py`.
@@ -93,11 +122,12 @@ python -m unittest test_teradata_sql_utils.py
 
 ## Function Reference
 
-### `create_date_filtered_query(base_query, date_column, start_date=None, end_date=None)`
+### `create_date_filtered_query(base_query, date_column, start_date=None, end_date=None, keyword_case='upper')`
 
 Adds date range filters to an existing SQL query.
+- `keyword_case` (str, optional): 'upper' (default) or 'lower' for generated SQL keywords.
 
-### `create_volatile_table_sql(table_name, query, primary_index_cols=None, check_exists=True, collect_stats=True, stats_columns=None, on_commit_preserve=True, is_querygrid=False, target_database=None)`
+### `create_volatile_table_sql(table_name, query, primary_index_cols=None, check_exists=True, collect_stats=True, stats_columns=None, on_commit_preserve=True, is_querygrid=False, target_database=None, keyword_case='upper')`
 
 Generates complete SQL for creating a volatile table from a query.
 - `table_name` (str): Name for the volatile table.
@@ -109,7 +139,17 @@ Generates complete SQL for creating a volatile table from a query.
 - `on_commit_preserve` (bool, default=True): If True, uses `ON COMMIT PRESERVE ROWS`. If False, uses `ON COMMIT DELETE ROWS`.
 - `is_querygrid` (bool, default=False): Set to True if this involves a QueryGrid query.
 - `target_database` (str, optional): Target database for QueryGrid queries.
+- `keyword_case` (str, optional): 'upper' (default) or 'lower' for generated SQL keywords.
 
-### `create_date_partitioned_query(base_query, date_column, partition_by="month", start_date=None, end_date=None)`
+### `create_date_partitioned_query(base_query, date_column, partition_by="month", start_date=None, end_date=None, keyword_case='upper')`
 
 Creates a date-partitioned query with the specified granularity (day, month, year).
+- `keyword_case` (str, optional): 'upper' (default) or 'lower' for generated SQL keywords.
+
+### `create_in_clause(column_name, values_list, chunk_size=1000)`
+
+Creates a SQL IN clause, handling chunking for large lists and appropriate quoting for string values.
+- `column_name` (str): The name of the column for the IN clause.
+- `values_list` (list): A list of values. String values will be quoted and escaped.
+- `chunk_size` (int, default=1000): Maximum number of values in a single IN operator. If exceeded, multiple `OR`'d `IN` clauses are generated.
+- Returns '1=0' if `values_list` is empty.
