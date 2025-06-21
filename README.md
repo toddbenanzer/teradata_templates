@@ -75,7 +75,14 @@ print(querygrid_sql)
 
 ## Examples
 
-See the included `teradata_examples.py` for complete examples of each function.
+Basic usage examples are provided below. For more detailed examples, refer to the unit tests in `test_teradata_sql_utils.py`.
+
+## Running Tests
+
+To run the unit tests for this module:
+```bash
+python -m unittest test_teradata_sql_utils.py
+```
 
 ## Best Practices
 
@@ -90,9 +97,18 @@ See the included `teradata_examples.py` for complete examples of each function.
 
 Adds date range filters to an existing SQL query.
 
-### `create_volatile_table_sql(table_name, query, primary_index_cols=None, check_exists=True, collect_stats=True, is_querygrid=False, target_database=None)`
+### `create_volatile_table_sql(table_name, query, primary_index_cols=None, check_exists=True, collect_stats=True, stats_columns=None, on_commit_preserve=True, is_querygrid=False, target_database=None)`
 
-Generates complete SQL for creating a volatile table from a query, with options for checking existence, collecting statistics, and using QueryGrid.
+Generates complete SQL for creating a volatile table from a query.
+- `table_name` (str): Name for the volatile table.
+- `query` (str): SQL query that will populate the table.
+- `primary_index_cols` (list/str, optional): Column(s) to use as primary index.
+- `check_exists` (bool, default=True): If True, adds SQL to drop the table if it exists.
+- `collect_stats` (bool, default=True): If True, adds SQL to collect statistics.
+- `stats_columns` (list/str, optional): Specific column(s) to collect statistics on. If None and `collect_stats` is True, statistics are collected on the table.
+- `on_commit_preserve` (bool, default=True): If True, uses `ON COMMIT PRESERVE ROWS`. If False, uses `ON COMMIT DELETE ROWS`.
+- `is_querygrid` (bool, default=False): Set to True if this involves a QueryGrid query.
+- `target_database` (str, optional): Target database for QueryGrid queries.
 
 ### `create_date_partitioned_query(base_query, date_column, partition_by="month", start_date=None, end_date=None)`
 
